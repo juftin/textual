@@ -41,6 +41,7 @@ from textual.geometry import Offset, Region, Size, Spacing, clamp
 from textual.reactive import Reactive, reactive
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
+from textual.binding import _Bindings
 
 _OPENING_BRACKETS = {"{": "}", "[": "]", "(": ")"}
 _CLOSING_BRACKETS = {v: k for k, v in _OPENING_BRACKETS.items()}
@@ -93,7 +94,7 @@ TextArea {
 }
 """
 
-    BINDINGS = [
+    READ_ONLY_BINDINGS = [
         Binding("escape", "screen.focus_next", "Shift Focus", show=False),
         # Cursor movement
         Binding("up", "cursor_up", "cursor up", show=False),
@@ -136,20 +137,6 @@ TextArea {
         # Binding("f5", "select_word", "select word", show=False),
         Binding("f6", "select_line", "select line", show=False),
         Binding("f7", "select_all", "select all", show=False),
-        # Deletion
-        Binding("backspace", "delete_left", "delete left", show=False),
-        Binding(
-            "ctrl+w", "delete_word_left", "delete left to start of word", show=False
-        ),
-        Binding("delete,ctrl+d", "delete_right", "delete right", show=False),
-        Binding(
-            "ctrl+f", "delete_word_right", "delete right to start of word", show=False
-        ),
-        Binding("ctrl+x", "delete_line", "delete line", show=False),
-        Binding(
-            "ctrl+u", "delete_to_start_of_line", "delete to line start", show=False
-        ),
-        Binding("ctrl+k", "delete_to_end_of_line", "delete to line end", show=False),
     ]
     """
     | Key(s)                 | Description                                  |
@@ -173,6 +160,27 @@ TextArea {
     | shift+down             | Select while moving the cursor down.         |
     | shift+left             | Select while moving the cursor left.         |
     | shift+right            | Select while moving the cursor right.        |
+    | f6                     | Select the current line.                     |
+    | f7                     | Select all text in the document.             |
+    """
+    EDIT_BINDINGS = [
+        Binding("backspace", "delete_left", "delete left", show=False),
+        Binding(
+            "ctrl+w", "delete_word_left", "delete left to start of word", show=False
+        ),
+        Binding("delete,ctrl+d", "delete_right", "delete right", show=False),
+        Binding(
+            "ctrl+f", "delete_word_right", "delete right to start of word", show=False
+        ),
+        Binding("ctrl+x", "delete_line", "delete line", show=False),
+        Binding(
+            "ctrl+u", "delete_to_start_of_line", "delete to line start", show=False
+        ),
+        Binding("ctrl+k", "delete_to_end_of_line", "delete to line end", show=False),
+    ]
+    """
+    | Key(s)                 | Description                                  |
+    | :-                     | :-                                           |
     | backspace              | Delete character to the left of cursor.      |
     | ctrl+w                 | Delete from cursor to start of the word.     |
     | delete,ctrl+d          | Delete character to the right of cursor.     |
@@ -180,9 +188,8 @@ TextArea {
     | ctrl+x                 | Delete the current line.                     |
     | ctrl+u                 | Delete from cursor to the start of the line. |
     | ctrl+k                 | Delete from cursor to the end of the line.   |
-    | f6                     | Select the current line.                     |
-    | f7                     | Select all text in the document.             |
     """
+    BINDINGS = [*READ_ONLY_BINDINGS, *EDIT_BINDINGS]
 
     language: Reactive[str | None] = reactive(None, always_update=True, init=False)
     """The language to use.
@@ -236,6 +243,9 @@ TextArea {
     _cursor_blink_visible: Reactive[bool] = reactive(True, repaint=False)
     """Indicates where the cursor is in the blink cycle. If it's currently
     not visible due to blinking, this is False."""
+
+    read_only: Reactive[bool] = reactive(False)
+    """Whether the text area is read-only."""
 
     def __init__(
         self,
@@ -488,6 +498,13 @@ TextArea {
                     self.styles.color = Color.from_rich_color(color)
                 if background:
                     self.styles.background = Color.from_rich_color(background)
+
+    def _watch_read_only(self, read_only: bool) -> None:
+        """Dynamically update the bindings when read_only changes."""
+        if read_only is True:
+            self._bindings = _Bindings(self.READ_ONLY_BINDINGS)
+        elif read_only is False:
+            self._bindings = _Bindings([*self.READ_ONLY_BINDINGS, *self.EDIT_BINDINGS])
 
     @property
     def available_themes(self) -> set[str]:
@@ -923,6 +940,8 @@ TextArea {
 
     async def _on_key(self, event: events.Key) -> None:
         """Handle key presses which correspond to document inserts."""
+        if self.read_only:
+            return None
         key = event.key
         insert_values = {
             "tab": " " * self._find_columns_to_next_tab_stop(),
